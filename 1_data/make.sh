@@ -47,34 +47,17 @@ mkdir -p "${MAKE_SCRIPT_DIR}/output"
 (
 cd "${MAKE_SCRIPT_DIR}/source"
 
-# YEARS=({2007..2020})
-# QUARTERS=(T1 T2 T3 T4)
+YEARS=({2019..2024})
+QUARTERS=(T1 T2 T3 T4)
 
-# for year in "${YEARS[@]}"; do
-#   for quarter in "${QUARTERS[@]}"; do
-#     echo -e "\nProcessing ${year} ${quarter}..."
-#     run_R make_quarterly_enoe.r "${LOGFILE}" "$year" "$quarter" || exit 1
-#     echo -e "\nFinished Processing ${year} ${quarter}..."
-#   done
-# done
+for year in "${YEARS[@]}"; do
+   for quarter in "${QUARTERS[@]}"; do
+     echo -e "\nProcessing ${year} ${quarter}..."
+     run_R make_quarterly_enoe.r "${LOGFILE}" "$year" "$quarter" || exit 1
+     echo -e "\nFinished Processing ${year} ${quarter}..."
+   done
+ done
 
-# for ((i=1; i<=245; i+=5)); do
-#   cohort_number=$(( (i-1) / 5 + 1))
-#   percent=$(( 100 * $cohort_number / 49 ))
-#   echo -e "\nProcessing cohort $cohort_number of 49 ... ($percent% done)"
-#   run_R make_cohorts_enoe.r "${LOGFILE}" "$i" || exit 1
-#   echo -e "\nFinished processing cohort $cohort_number of 49."
-#   echo -e "\nSaved cohort data as Cohort_$cohort_number to Output folder."
-# done
-
-# for ((i=1; i<=49; i+=1)); do
-#      percent_2=$(( 100 * $i / 49 ))
-#    echo -e "\nEditing cohort $i of 49 ... ($percent_2% done)"
-#    run_R edit_cohorts_enoe.r "${LOGFILE}" "$i" || exit 1
-#    echo -e "\nFinished Editing cohort $i of 49. Saved as CleanCohort_$i in Output folder."
-# done
-
-#run_R crime_and_pop.r "${LOGFILE}" || exit 1
 
 run_python staple_cohorts.py "${LOGFILE}" || exit 1
 
