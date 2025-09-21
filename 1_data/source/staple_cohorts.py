@@ -3,7 +3,8 @@ import pandas as pd
 import gc
 import psutil
 
-directory = "/Users/wernerd/Desktop/Daniel Werner/CleanCohorts"
+#directory = "/Users/wernerd/Desktop/Daniel Werner/CleanCohorts"
+directory = "/Users/wernerd/Desktop/vot share temp"
 
 dfs = []
 i = 0
@@ -34,5 +35,6 @@ del dfs
 gc.collect()
 
 print("Saving to disk...")
-all_data.to_stata(os.path.expanduser("~/Desktop/ENOE_panel.dta"), write_index=False)
+#all_data.to_stata(os.path.expanduser("~/Desktop/ENOE_panel.dta"), write_index=False)
+all_data.to_stata(os.path.expanduser("~/Desktop/STACK.dta"), write_index=False)
 print("Done!")
