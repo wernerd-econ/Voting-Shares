@@ -3,8 +3,8 @@ import pandas as pd
 import gc
 import psutil
 
-#directory = "/Users/wernerd/Desktop/Daniel Werner/CleanCohorts"
-directory = "/Users/wernerd/Desktop/vot share temp"
+#directory = "../output"
+directory = "/Users/wernerd/Desktop/Voting Shares Raw/vot share temp"
 
 dfs = []
 i = 0

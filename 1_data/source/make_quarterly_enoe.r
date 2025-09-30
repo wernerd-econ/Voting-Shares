@@ -17,6 +17,7 @@ library(haven)
 
 # Function to keep only required columns
 delete_unnecessary_columns <- function(df, columns_to_keep) {
+  df <- df %>% filter (r_def == 00 & c_res %in% c(1,3) & eda >= 15 & eda <= 98)
   df <- df[, intersect(columns_to_keep, names(df))]
   return(df)
 }
@@ -68,7 +69,9 @@ main <- function(){
     # Read data
     cohort <- read_dta(file.path(download_path, cohort_file))
     columns_to_keep <- c("ent", "mun", "clase1", "clase2",
-                         "fac", "fac_tri", "ing_x_hrs", "ingocup", "sex")
+                         "fac", "fac_tri", "ing_x_hrs", "ingocup", "sex",
+                         "pos_ocu", "seg_soc", "rama", "c_ocu11c", "tpg_p8a",
+                         "p14apoyos", "scian", "emp_ppal", "tue_ppal")
     
     cohort <- delete_unnecessary_columns(cohort, columns_to_keep)
     cohort <- create_new_variables(cohort, year, quarter)
