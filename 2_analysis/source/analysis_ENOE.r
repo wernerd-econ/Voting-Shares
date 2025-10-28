@@ -1,6 +1,10 @@
 library(lubridate)
 library(zoo)
 library(readxl)
+library(tidyverse)
+library(haven)
+library(purrr)
+library(broom)
 
 pop <- read_excel(file.path("/Users/wernerd/Desktop/Daniel Werner/Population", "pop.xlsx"))
 pop <- pop %>%
@@ -62,13 +66,15 @@ voting$date <- as.Date(as.character(voting$date), format = "%Y%m%d")
 voting <- voting %>%
   mutate(
     # inauguration happens 3 months after election
-    inauguration_date = date %m+% months(3),
+    inauguration_date = date,
     # convert to year-quarter
     inauguration_qtr = as.yearqtr(inauguration_date),
+    election_qtr = as.yearqtr(date),
     # shift by one quarter
-    inauguration_qtr_lag1 = inauguration_qtr + 1/4,
+    inauguration_qtr_lag1 = inauguration_qtr + 2/4,
     # format back into "YYYY-QX"
-    inauguration_trim = format(inauguration_qtr_lag1, "%Y-Q%q")
+    inauguration_trim = format(inauguration_qtr_lag1, "%Y-Q%q"),
+    election_trim = format(election_qtr, "%Y-Q%q")
   )
 
 voting <- voting %>%
@@ -95,7 +101,8 @@ margin_strict <- voting_long %>%
     max_other,
     margin = morena_share - max_other,
     win,
-    inauguration_trim
+    inauguration_trim,
+    election_trim
   ) %>%
   ungroup()
 
@@ -110,7 +117,8 @@ margin_coalition_included <- voting_long %>%
     max_other,
     margin = morena_share - max_other,
     win,
-    inauguration_trim
+    inauguration_trim,
+    election_trim
   ) %>%
   ungroup()
 
@@ -127,18 +135,24 @@ margin_coalition_included <- margin_coalition_included %>%
 stack <- read_dta(file.path(base_path,"STACK.dta"))
 stack <- stack %>%
   mutate(year = as.integer(substr(trim, 1, 4))) %>%
-  filter(year >= 2019, year <= 2024)
+  filter(year >= 2017, year <= 2024) 
 
 stack <- stack %>%
   mutate(
     unemployed = ifelse(clase1 == 1 & clase2 == 2, 1, 0),
     employed = ifelse(clase1 == 1 & clase2 == 1, 1, 0), 
     PEA = ifelse(clase1 == 1, 1, 0),
-    manufac = ifelse(PEA * rama == 2, 1, 0),
-    apoyo_economico = ifelse(p14apoyos == "Sí recibe apoyos económicos", 1, 0),
-    no_apoyo_economico = ifelse(p14apoyos == "No recibe apoyos económicos", 1, 0),
-    empleo_informal = ifelse(emp_ppal == 1, 1, 0),
+    manufac = ifelse(employed * rama == 2, 1, 0),
+    services = ifelse(employed * rama == 4, 1, 0),
+    agriculture = ifelse(employed * rama == 6, 1, 0),
+    construction = ifelse(employed * rama == 1, 1, 0),
+    commerce = ifelse(employed * rama == 3, 1, 0),
+    apoyo_economico = ifelse(p14apoyos == 1, 1, 0),
+    no_apoyo_economico = ifelse(p14apoyos == 2, 1, 0),
+    empleo_informal = ifelse(employed * emp_ppal == 1, 1, 0),
+    seg_soc = ifelse(employed * seg_soc == 1, 1, 0)
   )
+
 
 
 
@@ -149,16 +163,27 @@ collapsed <- stack %>%
     total_unemployed = sum(unemployed * weights, na.rm = TRUE),
     total_employed = sum(employed * weights, na.rm = TRUE),
     total_manufac = sum(manufac * weights, na.rm = TRUE),
+    total_services = sum(services * weights, na.rm = TRUE),
+    total_agriculture = sum(agriculture * weights, na.rm = TRUE),
+    total_construction = sum(construction * weights, na.rm = TRUE),
+    total_commerce = sum(commerce * weights, na.rm = TRUE),
     total_recieve_help = sum(apoyo_economico * weights, na.rm = TRUE),
     total_informal = sum(empleo_informal * weights, na.rm = TRUE),
-    total_people = sum((apoyo_economico+no_apoyo_economico)*weights, na.rm = TRUE),
+    total_people_apoyo = sum((apoyo_economico+no_apoyo_economico)*weights, na.rm = TRUE),
     total_PEA = sum(PEA * weights, na.rm = TRUE),
+    total_seg_soc = sum(seg_soc * weights, na.rm = TRUE),
     unemployment_rate = ifelse(total_PEA > 0, total_unemployed / total_PEA, NA) * 100,
     manufac_rate = ifelse(total_employed > 0, total_manufac / total_employed, NA) * 100,
-    share_recieve_help = ifelse(total_people > 0, total_recieve_help/ total_people, NA) * 100,
+    services_rate = ifelse(total_employed > 0, total_services / total_employed, NA) * 100,
+    agriculture_rate = ifelse(total_employed > 0, total_agriculture / total_employed, NA) * 100,
+    construction_rate = ifelse(total_employed > 0, total_construction / total_employed, NA) * 100,
+    commerce_rate = ifelse(total_employed > 0, total_commerce / total_employed, NA) * 100,
+    share_recieve_help = ifelse(total_people_apoyo > 0, total_recieve_help/ total_people_apoyo, NA) * 100,
     informal_rate = ifelse(total_employed > 0, total_informal / total_employed, NA) * 100,
+    share_w_social_security = ifelse(total_employed >0, total_seg_soc / total_employed, NA) * 100,
     .groups = "drop"
   )
+
 x <- 0.1
 ineq <- stack %>%
   filter(employed == 1, ingocup > 0, !is.na(ingocup), !is.na(weights)) %>%
@@ -201,19 +226,22 @@ unemp_voting <- unemp_voting %>%
   mutate(
     trim_fixed = str_replace(trim, "T", "Q"),
     inauguration_trim_fixed = str_replace(inauguration_trim, "T", "Q"),
+    election_trim_fixed = str_replace(election_trim, "T", "Q"),
     trim_qtr = as.yearqtr(trim_fixed, format = "%Y-Q%q"),
-    inauguration_qtr = as.yearqtr(inauguration_trim_fixed, format = "%Y-Q%q")
-  ) %>%
-  filter(trim_qtr > inauguration_qtr & trim_qtr <= inauguration_qtr + 2)
+    inauguration_qtr = as.yearqtr(inauguration_trim_fixed, format = "%Y-Q%q"),
+    election_qtr = as.yearqtr(election_trim_fixed, format = "%Y-Q%q")
+  ) 
 
 unemp_voting_coalition <- unemp_voting_coalition %>%
   mutate(
     trim_fixed = str_replace(trim, "T", "Q"),
     inauguration_trim_fixed = str_replace(inauguration_trim, "T", "Q"),
+    election_trim_fixed = str_replace(election_trim, "T", "Q"),
     trim_qtr = as.yearqtr(trim_fixed, format = "%Y-Q%q"),
-    inauguration_qtr = as.yearqtr(inauguration_trim_fixed, format = "%Y-Q%q")
-  ) %>%
-  filter(trim_qtr > inauguration_qtr & trim_qtr <= inauguration_qtr + 2)
+    inauguration_qtr = as.yearqtr(inauguration_trim_fixed, format = "%Y-Q%q"),
+    election_qtr = as.yearqtr(election_trim_fixed, format = "%Y-Q%q")
+  ) 
+
 
 # Merge population data (pop_quarterly must have columns: municipality, trim, pop_tot_qtr)
 unemp_voting <- unemp_voting %>%
@@ -222,89 +250,143 @@ unemp_voting <- unemp_voting %>%
 unemp_voting_coalition <- unemp_voting_coalition %>%
   left_join(pop_quarterly, by = c("inegi" = "municipality", "trim_fixed" = "trim"))
 
+#make data sets for post and pre inauguration 
+#pre inauguration will serve as lame duck or falsification test
 
-
-# Quarterly average unemployment rate and population after inauguration (strict)
-unemp_voting_avg <- unemp_voting %>%
-  group_by(inegi, inauguration_trim) %>%
-  summarise(
-    avg_unemp_rate = mean(unemployment_rate, na.rm = TRUE),
-    avg_manufac_rate = mean(manufac_rate, na.rm = TRUE),
-    avg_informal_rate = mean(informal_rate, na.rm = TRUE),
-    avg_inc_ineq = mean(diff_top_bottom, na.rm = TRUE),
-    avg_pop_tot = mean(pop_tot_qtr, na.rm = TRUE),
-    morenaWin = unique(morenaWin),
-    margin = unique(margin),
-    pop_tot = mean(pop_tot_qtr, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Quarterly average unemployment rate and population after inauguration (coalition)
-unemp_voting_avg_coalition <- unemp_voting_coalition %>%
-  group_by(inegi, inauguration_trim) %>%
-  summarise(
-    avg_unemp_rate = mean(unemployment_rate, na.rm = TRUE),
-    avg_manufac_rate = mean(manufac_rate, na.rm = TRUE),
-    avg_informal_rate = mean(informal_rate, na.rm = TRUE),
-    avg_inc_ineq = mean(diff_top_bottom, na.rm = TRUE),
-    avg_pop_tot = mean(pop_tot_qtr, na.rm = TRUE),
-    morenaWin = unique(morenaWin),
-    margin = unique(margin),
-    pop_tot = mean(pop_tot_qtr, na.rm = TRUE), 
-    .groups = "drop"
-  )
-
-##RD
-rd_data <- unemp_voting_avg %>%
+unemp_voting_perioded <- unemp_voting %>%
   mutate(
-    spread_w = margin * morenaWin,       
-    spread_l = margin * (1 - morenaWin), 
-    spread_w2 = spread_w^2,
-    spread_l2 = spread_l^2
-  )
+    period = case_when(
+      trim_qtr >= (election_qtr - 1) & trim_qtr < election_qtr           ~ "pre",        # 2 years prior to election
+      trim_qtr >  election_qtr & trim_qtr < inauguration_qtr           ~ "lame_duck",  # between election and inauguration
+      trim_qtr >=  inauguration_qtr & trim_qtr <= inauguration_qtr + 2   ~ "post",       # 2 years after inauguration
+      TRUE                                                               ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(period))
 
-rd_model <- lm(
-  avg_inc_ineq ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2,
-  data = rd_data,
-  weights = pop_tot
-)
-
-summary(rd_model)
-
-rd_data_bw5 <- rd_data %>%
-  filter(abs(margin) < 0.07)
-
-rd_model_bw5 <- lm(
-  avg_inc_ineq ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2,
-  data = rd_data_bw5,
-  weights = pop_tot
-)
-
-summary(rd_model_bw5)
-
-rd_data_coalition <- unemp_voting_avg_coalition %>%
+unemp_voting_coalition_perioded <- unemp_voting_coalition %>%
   mutate(
-    spread_w = margin * morenaWin,       
-    spread_l = margin * (1 - morenaWin), 
-    spread_w2 = spread_w^2,
-    spread_l2 = spread_l^2
+    period = case_when(
+      trim_qtr >= (election_qtr - 1) & trim_qtr < election_qtr           ~ "pre",
+      trim_qtr >  election_qtr & trim_qtr < inauguration_qtr           ~ "lame_duck",
+      trim_qtr >=  inauguration_qtr & trim_qtr <= inauguration_qtr + 2   ~ "post",
+      TRUE                                                               ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(period))
+
+# Quarterly average outcomes after inauguration and pre election
+make_avg <- function(df) {
+  df %>%
+    group_by(inegi, inauguration_trim, period) %>%
+    summarise(
+      avg_unemp_rate       = mean(unemployment_rate, na.rm = TRUE),
+      avg_manufac_rate     = mean(manufac_rate, na.rm = TRUE),
+      avg_services_rate    = mean(services_rate, na.rm = TRUE),
+      avg_construction_rate= mean(construction_rate, na.rm = TRUE),
+      avg_commerce_rate    = mean(commerce_rate, na.rm = TRUE),
+      avg_share_w_ss       = mean(share_w_social_security, na.rm = TRUE),
+      avg_informal_rate    = mean(informal_rate, na.rm = TRUE),
+      avg_inc_ineq         = mean(diff_top_bottom, na.rm = TRUE),
+      avg_pop_tot          = mean(pop_tot_qtr, na.rm = TRUE),
+      morenaWin            = unique(morenaWin),
+      margin               = unique(margin),
+      pop_tot              = mean(pop_tot_qtr, na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+
+perioded_post      <- make_avg(unemp_voting_perioded %>% filter(period == "post"))     
+perioded_pre       <- make_avg(unemp_voting_perioded %>% filter(period == "pre"))       
+perioded_lame      <- make_avg(unemp_voting_perioded %>% filter(period == "lame_duck")) 
+
+perioded_post_coal <- make_avg(unemp_voting_coalition_perioded %>% filter(period == "post"))      
+perioded_pre_coal  <- make_avg(unemp_voting_coalition_perioded %>% filter(period == "pre"))       
+perioded_lame_coal <- make_avg(unemp_voting_coalition_perioded %>% filter(period == "lame_duck")) 
+
+
+################################# RD ###########################################
+# Prepare RD data 
+prep_rd <- function(df, binwidth) {
+  df %>%
+    mutate(
+      spread_w  = margin * morenaWin,
+      spread_l  = margin * (1 - morenaWin),
+      spread_w2 = spread_w^2,
+      spread_l2 = spread_l^2
+    ) %>%
+    # apply same bandwidth you used earlier (example: 7%)
+    filter(abs(margin) <= binwidth)
+}
+
+rd_post      <- prep_rd(perioded_post, 0.05)
+rd_pre       <- prep_rd(perioded_pre, 0.05)
+rd_lame      <- prep_rd(perioded_lame, 0.05)
+rd_post_coal <- prep_rd(perioded_post_coal, 0.05)
+rd_pre_coal  <- prep_rd(perioded_pre_coal, 0.05)
+rd_lame_coal <- prep_rd(perioded_lame_coal, 0.05)
+
+outcomes <- c(
+  "avg_unemp_rate", "avg_manufac_rate", "avg_services_rate",
+  "avg_construction_rate", "avg_commerce_rate", "avg_share_w_ss",
+  "avg_informal_rate", "avg_inc_ineq"
+)
+
+# Function to run RD for one outcome
+run_rd_single <- function(outcome_var, data, weight_var = "avg_pop_tot", func) {
+  if (func == "linear"){
+    frm <- as.formula(paste0(outcome_var, " ~ morenaWin + spread_w + spread_l"))
+  } else {
+    frm <- as.formula(paste0(outcome_var, " ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2"))
+  }
+  # default to 2-step: try lm with weights; catches errors gracefully
+  model <- lm(frm, data = data, weights = data[[weight_var]])
+  tidy(model) %>%
+    filter(term == "morenaWin") %>%
+    transmute(
+      outcome = outcome_var,
+      estimate = estimate,
+      std.error = std.error,
+      conf.low = estimate - 1.96 * std.error,
+      conf.high = estimate + 1.96 * std.error
+    )
+}
+
+# 5) run for all outcomes × (pre/post) and combine into results table
+run_all <- function(df, label, func) {
+  map_dfr(outcomes, run_rd_single, data = df, weight_var = "avg_pop_tot", func = func) %>%
+    mutate(period = label)
+}
+
+results_post      <- run_all(rd_post, "post", func = "linear")
+results_pre       <- run_all(rd_pre, "pre", func = "linear")
+results_lame      <- run_all(rd_lame, "lame_duck", func = "linear")
+
+results_post_coal <- run_all(rd_post_coal, "post", func = "linear")
+results_pre_coal  <- run_all(rd_pre_coal, "pre", func = "linear")
+results_lame_coal <- run_all(rd_lame_coal, "lame_duck", func = "linear")
+
+results_strict    <- bind_rows(results_pre, results_lame, results_post) %>% mutate(sample = "strict")
+results_coalition <- bind_rows(results_pre_coal, results_lame_coal, results_post_coal) %>% mutate(sample = "coalition")
+
+results_all <- bind_rows(results_strict, results_coalition) %>%
+  mutate(
+    outcome = factor(outcome, levels = rev(outcomes)),
+    period = factor(period, levels = c("pre", "lame_duck", "post"))
   )
 
-rd_model_coalition <- lm(
-  avg_inc_ineq ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2,
-  data = rd_data_coalition,
-  weights = pop_tot
-)
+ggplot(results_all, aes(x = outcome, y = estimate, color = period)) +
+  geom_point(position = position_dodge(width = 0.6), size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                position = position_dodge(width = 0.6), width = 0.25) +
+  facet_wrap(~ sample) +
+  coord_flip() +
+  labs(
+    x = NULL,
+    y = "Estimated coefficient on morenaWin",
+    title = "RD estimates (morenaWin) — pre / lame_duck / post",
+    color = "Period"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 10))
 
-summary(rd_model_coalition)
-
-rd_data_bw5_coalition <- rd_data_coalition %>%
-  filter(abs(margin) < 0.05)
-
-rd_model_bw5_coalition <- lm(
-  avg_inc_ineq ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2,
-  data = rd_data_bw5_coalition,
-  weights = pop_tot
-)
-
-summary(rd_model_bw5_coalition)

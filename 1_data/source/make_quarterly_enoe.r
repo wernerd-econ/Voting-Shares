@@ -71,13 +71,13 @@ main <- function(){
     columns_to_keep <- c("ent", "mun", "clase1", "clase2",
                          "fac", "fac_tri", "ing_x_hrs", "ingocup", "sex",
                          "pos_ocu", "seg_soc", "rama", "c_ocu11c", "tpg_p8a",
-                         "p14apoyos", "scian", "emp_ppal", "tue_ppal")
+                         "p14apoyos", "scian", "emp_ppal", "tue_ppal", "eda")
     
     cohort <- delete_unnecessary_columns(cohort, columns_to_keep)
     cohort <- create_new_variables(cohort, year, quarter)
     
     # Save
-    write_dta(cohort, paste0("../output/",
+    write_dta(cohort, paste0("/Users/wernerd/Desktop/Voting Shares Raw/vot share temp/",
                              sprintf("%d_%s.dta", year, quarter)))
     invisible(gc())
   }, error = function(e) {

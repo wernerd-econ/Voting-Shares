@@ -1,6 +1,8 @@
 library(tidyverse)
 library(stringr)
 library(haven)
+library(broom)
+library(purrr)
 
 base_path <- "/Users/wernerd/Desktop/Voting Shares Raw"
 
@@ -10,8 +12,10 @@ voting$date <- as.Date(as.character(voting$date), format = "%Y%m%d")
 
 voting <- voting %>%
   mutate(
-    inauguration_date = date %m+% months(3)
-  )
+    election_date = date,
+    inauguration_date = date %m+% months(6)
+  ) %>%
+  select(-date)
 
 voting <- voting %>%
   mutate(across(matches("^v\\d{2}$"), ~ .x / efec,
@@ -37,7 +41,8 @@ margin_strict <- voting_long %>%
     max_other,
     margin = morena_share - max_other,
     win,
-    inauguration_date
+    inauguration_date,
+    election_date
   ) %>%
   ungroup()
 
@@ -52,7 +57,8 @@ margin_coalition_included <- voting_long %>%
     max_other,
     margin = morena_share - max_other,
     win,
-    inauguration_date
+    inauguration_date,
+    election_date
   ) %>%
   ungroup()
 
@@ -74,10 +80,10 @@ homicides <- homicides %>%
   )
 
 margin_strict <- margin_strict %>%
-  filter(yr >= 2019 & yr <= 2021)
+  filter(yr >= 2019 & yr <= 2022)
 
 margin_coalition_included <- margin_coalition_included %>%
-  filter(yr >= 2019 & yr <= 2021)
+  filter(yr >= 2019 & yr <= 2022)
 
 homicides_voting <- margin_strict %>%
   left_join(homicides, by = c("inegi" = "municipality"))
@@ -86,89 +92,124 @@ homicides_voting_coalition <- margin_coalition_included %>%
   left_join(homicides, by = c("inegi" = "municipality"))
 
 homicides_voting <- homicides_voting %>%
-  filter(date > inauguration_date,
-         date <= inauguration_date + months(12))
+  mutate(
+    period = case_when(
+      date >= (election_date %m-% months(12)) & date < election_date       ~ "pre",
+      date >  election_date & date < inauguration_date        ~ "lame_duck",
+      date >= inauguration_date & date <= inauguration_date %m+% months(12)      ~ "post",
+      TRUE                                                                   ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(period))
 
 homicides_voting_coalition <- homicides_voting_coalition %>%
-  filter(date > inauguration_date,
-         date <= inauguration_date + months(12))
-
-homicides_voting_avg <- homicides_voting %>%
-  group_by(inegi, inauguration_date) %>%
-  summarise(
-    n = n(),
-    avg_homicide_rate_next12m = mean(homicides, na.rm = TRUE)/mean(pop_tot) * 12 * 100000,
-    pop_tot = mean(pop_tot),
-    morenaWin = unique(morenaWin),
-    margin = unique(margin),
-    .groups = "drop"
-  )
-
-homicides_voting_avg_coalition <- homicides_voting_coalition %>%
-  group_by(inegi, inauguration_date) %>%
-  summarise(
-    n = n(),
-    avg_homicide_rate_next12m = mean(homicides, na.rm = TRUE)/mean(pop_tot) * 12 * 100000,
-    pop_tot = mean(pop_tot),
-    morenaWin = unique(morenaWin),
-    margin = unique(margin),
-    .groups = "drop"
-  )
-
-
-############################### RD ############################################
-rd_data <- homicides_voting_avg %>%
-  rename(hom_rate = avg_homicide_rate_next12m) %>%
   mutate(
-    spread_w = margin * morenaWin,       
-    spread_l = margin * (1 - morenaWin), 
-    spread_w2 = spread_w^2,
-    spread_l2 = spread_l^2
-  )
+    period = case_when(
+      date >= (election_date %m-% months(12)) & date < election_date       ~ "pre",
+      date >  election_date & date < inauguration_date        ~ "lame_duck",
+      date >= inauguration_date & date <= inauguration_date %m+% months(12)      ~ "post",
+      TRUE                                                                   ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(period))
 
-rd_model <- lm(
-  hom_rate ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2,
-  data = rd_data,
-  weights = pop_tot
-)
+make_avg <- function(df) {
+  df %>%
+    group_by(inegi, inauguration_date, period) %>%
+    summarise(
+      avg_homicide_rate = mean(homicides, na.rm = TRUE)/mean(pop_tot) * 12 * 100000,
+      pop_tot = mean(pop_tot),
+      morenaWin = unique(morenaWin),
+      margin = unique(margin),
+      .groups = "drop"
+    )
+}
 
-summary(rd_model)
+# Make perioded averages for homicide data
+perioded_post      <- make_avg(homicides_voting %>% filter(period == "post"))     
+perioded_pre       <- make_avg(homicides_voting %>% filter(period == "pre"))       
+perioded_lame      <- make_avg(homicides_voting %>% filter(period == "lame_duck")) 
 
-rd_data_bw5 <- rd_data %>%
-  filter(abs(margin) < 0.02)
+perioded_post_coal <- make_avg(homicides_voting_coalition %>% filter(period == "post"))      
+perioded_pre_coal  <- make_avg(homicides_voting_coalition %>% filter(period == "pre"))       
+perioded_lame_coal <- make_avg(homicides_voting_coalition %>% filter(period == "lame_duck")) 
 
-rd_model_bw5 <- lm(
-  hom_rate ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2,
-  data = rd_data_bw5,
-  weights = pop_tot
-)
+################################# RD ###########################################
+# Prepare RD data 
+prep_rd <- function(df, binwidth) {
+  df %>%
+    mutate(
+      spread_w  = margin * morenaWin,
+      spread_l  = margin * (1 - morenaWin),
+      spread_w2 = spread_w^2,
+      spread_l2 = spread_l^2
+    ) %>%
+    filter(abs(margin) <= binwidth)
+}
 
-summary(rd_model_bw5)
+rd_post      <- prep_rd(perioded_post, 0.08)
+rd_pre       <- prep_rd(perioded_pre, 0.08)
+rd_lame      <- prep_rd(perioded_lame, 0.08)
+rd_post_coal <- prep_rd(perioded_post_coal, 0.08)
+rd_pre_coal  <- prep_rd(perioded_pre_coal, 0.08)
+rd_lame_coal <- prep_rd(perioded_lame_coal, 0.08)
 
-rd_data_coalition <- homicides_voting_avg_coalition %>%
-  rename(hom_rate = avg_homicide_rate_next12m) %>%
+outcomes <- c("avg_homicide_rate")
+
+# Function to run RD for one outcome
+run_rd_single <- function(outcome_var, data, weight_var = "pop_tot", func = "linear") {
+  if (func == "linear"){
+    frm <- as.formula(paste0(outcome_var, " ~ morenaWin + spread_w + spread_l"))
+  } else {
+    frm <- as.formula(paste0(outcome_var, " ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2"))
+  }
+  model <- lm(frm, data = data, weights = data[[weight_var]])
+  tidy(model) %>%
+    filter(term == "morenaWin") %>%
+    transmute(
+      outcome = outcome_var,
+      estimate = estimate,
+      std.error = std.error,
+      conf.low = estimate - 1.96 * std.error,
+      conf.high = estimate + 1.96 * std.error
+    )
+}
+
+# Run for all outcomes × periods
+run_all <- function(df, label, func) {
+  map_dfr(outcomes, run_rd_single, data = df, weight_var = "pop_tot", func = func) %>%
+    mutate(period = label)
+}
+
+results_post      <- run_all(rd_post, "post", func = "quadratic")
+results_pre       <- run_all(rd_pre, "pre", func = "quadratic")
+results_lame      <- run_all(rd_lame, "lame_duck", func = "quadratic")
+
+results_post_coal <- run_all(rd_post_coal, "post", func = "quadratic")
+results_pre_coal  <- run_all(rd_pre_coal, "pre", func = "quadratic")
+results_lame_coal <- run_all(rd_lame_coal, "lame_duck", func = "quadratic")
+
+results_strict    <- bind_rows(results_pre, results_lame, results_post) %>% mutate(sample = "strict")
+results_coalition <- bind_rows(results_pre_coal, results_lame_coal, results_post_coal) %>% mutate(sample = "coalition")
+
+results_all <- bind_rows(results_strict, results_coalition) %>%
   mutate(
-    spread_w = margin * morenaWin,       
-    spread_l = margin * (1 - morenaWin), 
-    spread_w2 = spread_w^2,
-    spread_l2 = spread_l^2
+    outcome = factor(outcome, levels = rev(outcomes)),
+    period  = factor(period, levels = c("pre", "lame_duck", "post"))
   )
 
-rd_model_coalition <- lm(
-  hom_rate ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2,
-  data = rd_data_coalition,
-  weights = pop_tot
-)
-
-summary(rd_model_coalition)
-
-rd_data_bw5_coalition <- rd_data_coalition %>%
-  filter(abs(margin) < 0.05)
-
-rd_model_bw5_coalition <- lm(
-  hom_rate ~ morenaWin + spread_w + spread_l + spread_w2 + spread_l2,
-  data = rd_data_bw5_coalition,
-  weights = pop_tot
-)
-
-summary(rd_model_bw5_coalition)
+# Plot
+ggplot(results_all, aes(x = outcome, y = estimate, color = period)) +
+  geom_point(position = position_dodge(width = 0.6), size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                position = position_dodge(width = 0.6), width = 0.25) +
+  facet_wrap(~ sample) +
+  coord_flip() +
+  labs(
+    x = NULL,
+    y = "Estimated coefficient on morenaWin",
+    title = "RD estimates (morenaWin) — pre / lame_duck / post",
+    color = "Period"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 10))

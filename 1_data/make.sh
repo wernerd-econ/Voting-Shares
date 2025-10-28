@@ -47,16 +47,16 @@ mkdir -p "${MAKE_SCRIPT_DIR}/output"
 (
 cd "${MAKE_SCRIPT_DIR}/source"
 
-# YEARS=({2019..2024})
-# QUARTERS=(T1 T2 T3 T4)
+YEARS=({2017..2024})
+QUARTERS=(T1 T2 T3 T4)
 
-# for year in "${YEARS[@]}"; do
-#    for quarter in "${QUARTERS[@]}"; do
-#      echo -e "\nProcessing ${year} ${quarter}..."
-#      run_R make_quarterly_enoe.r "${LOGFILE}" "$year" "$quarter" || exit 1
-#      echo -e "\nFinished Processing ${year} ${quarter}..."
-#    done
-#  done
+for year in "${YEARS[@]}"; do
+   for quarter in "${QUARTERS[@]}"; do
+     echo -e "\nProcessing ${year} ${quarter}..."
+     run_R make_quarterly_enoe.r "${LOGFILE}" "$year" "$quarter" || exit 1
+     echo -e "\nFinished Processing ${year} ${quarter}..."
+   done
+ done
 
 echo -e "\nFinished Processing Quarterly Files, Now Stapling Cohorts..."
 

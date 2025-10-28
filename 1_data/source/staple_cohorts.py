@@ -17,7 +17,7 @@ for filename in os.listdir(directory):
         file_path = os.path.join(directory, filename)
         print(f"Reading file {i}: {filename}")
         
-        df = pd.read_stata(file_path)
+        df = pd.read_stata(file_path, convert_categoricals=False)
         dfs.append(df)
         
         # Check memory after each load
@@ -33,8 +33,9 @@ print("All cohorts loaded. Concatenating...")
 all_data = pd.concat(dfs, ignore_index=True)
 del dfs
 gc.collect()
+print("Concatenation done.")
 
 print("Saving to disk...")
 #all_data.to_stata(os.path.expanduser("~/Desktop/ENOE_panel.dta"), write_index=False)
-all_data.to_stata(os.path.expanduser("~/Desktop/STACK.dta"), write_index=False)
+all_data.to_stata(os.path.expanduser("~/Desktop/Voting Shares Raw/STACK.dta"), write_index=False)
 print("Done!")
